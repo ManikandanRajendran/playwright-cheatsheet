@@ -226,6 +226,7 @@ footer { background: var(--bg); border-top: 1px solid var(--border); padding: 2.
 <script>
 const SECTIONS = [
   { id: 'start', label: 'Getting Started', fns: [] },
+  { id: 'bdd', label: 'BDD & Cucumber', fns: [] },
   { id: 'loc', label: 'Locators', fns: [] },
   { id: 'act', label: 'Actions', fns: [] },
   { id: 'assert', label: 'Assertions', fns: [] },
@@ -233,6 +234,216 @@ const SECTIONS = [
   { id: 'api', label: 'API Testing', fns: [] },
   { id: 'adv', label: 'Advanced', fns: [] },
 ];
+
+SECTIONS.find(s => s.id === 'bdd').fns = [
+    {
+      name: 'describe / it — BDD-style grouping', ret: 'void', short: 'Organise tests with describe blocks and it() instead of test()',
+      desc: 'Playwright\'s built-in runner is TDD-first but fully supports BDD-style naming using test.describe() and test(). Rename test() to it() with test.describe() for a spec that reads like plain English — no extra packages needed. This is the lightest-weight BDD option and the most common in real codebases.',
+      use: 'When your team prefers Given/When/Then thinking but does not want a full Cucumber/Gherkin setup. Works out of the box with zero config changes.',
+      examples: [
+        { label: 'Basic describe / it structure', code: `import { test as it, expect } from '@playwright/test';
+
+it.describe('Login page', () => {
+  it('should show an error for wrong credentials', async ({ page }) => {
+    await page.goto('/login');
+    await page.fill('#email', 'bad@test.com');
+    await page.fill('#password', 'wrongpass');
+    await page.click('button[type=submit]');
+    await expect(page.getByText('Invalid credentials')).toBeVisible();
+  });
+});` },
+        { label: 'Nested describe — feature / scenario structure', code: `it.describe('Checkout', () => {
+  it.describe('as a logged-in user', () => {
+    it.beforeEach(async ({ page }) => {
+      await page.goto('/login');
+      // login steps...
+    });
+
+    it('should complete purchase', async ({ page }) => {
+      await page.goto('/cart');
+      await page.click('text=Checkout');
+      await expect(page).toHaveURL('/confirmation');
+    });
+  });
+});` },
+        { label: 'Given / When / Then naming convention', code: `it.describe('Product search', () => {
+  it('Given I am on the homepage, When I search "laptop", Then results appear',
+    async ({ page }) => {
+      // Given
+      await page.goto('/');
+      // When
+      await page.fill('[data-testid="search"]', 'laptop');
+      await page.keyboard.press('Enter');
+      // Then
+      await expect(page.locator('.product-card')).toHaveCount(5);
+    });
+});` },
+        { label: 'it.skip / it.only — BDD subset runs', code: `it.describe('Payment', () => {
+  it.only('processes Visa card', async ({ page }) => {
+    // only this runs when debugging
+  });
+
+  it.skip('processes expired card', async ({ page }) => {
+    // skipped — work in progress
+  });
+});` },
+        { label: 'Shared steps via fixtures (BDD-friendly)', code: `// fixtures/bdd-steps.ts
+import { test as base } from '@playwright/test';
+
+export const test = base.extend<{ loginAs: (role: string) => Promise<void> }>({
+  loginAs: async ({ page }, use) => {
+    await use(async (role) => {
+      await page.goto('/login');
+      await page.fill('#email', \`\${role}@example.com\`);
+      await page.fill('#password', 'password');
+      await page.click('button[type=submit]');
+    });
+  },
+});
+
+// spec.ts
+test('admin sees the dashboard', async ({ page, loginAs }) => {
+  await loginAs('admin');
+  await expect(page).toHaveURL('/dashboard');
+});` },
+      ]
+    },
+    {
+      name: 'playwright-bdd — Gherkin feature files', ret: 'BDD', short: 'Write .feature files and step definitions using playwright-bdd',
+      desc: 'playwright-bdd is the most popular package for running Cucumber-style Gherkin specs with Playwright as the browser driver. You write standard .feature files (Given/When/Then), define steps in TypeScript, and playwright-bdd generates Playwright test files that run through the normal playwright test command.',
+      use: 'When your team already has Gherkin feature files, or product owners / BAs write acceptance criteria in Given/When/Then format that should map directly to tests.',
+      examples: [
+        { label: 'Install playwright-bdd', code: `npm install -D playwright-bdd
+
+# playwright.config.ts — add BDD plugin
+import { defineConfig } from '@playwright/test';
+import { defineBddConfig } from 'playwright-bdd';
+
+const testDir = defineBddConfig({
+  features: 'features/**/*.feature',
+  steps: 'features/steps/**/*.ts',
+});
+
+export default defineConfig({ testDir });` },
+        { label: 'A .feature file (Gherkin)', code: `# features/login.feature
+Feature: Login
+
+  Scenario: Successful login with valid credentials
+    Given I am on the login page
+    When I fill in "email" with "user@example.com"
+    And I fill in "password" with "secret"
+    And I click the "Sign in" button
+    Then I should be redirected to the dashboard` },
+        { label: 'Step definitions (.ts)', code: `// features/steps/login.steps.ts
+import { createBdd } from 'playwright-bdd';
+const { Given, When, Then } = createBdd();
+
+Given('I am on the login page', async ({ page }) => {
+  await page.goto('/login');
+});
+
+When('I fill in {string} with {string}', async ({ page }, field, value) => {
+  await page.fill(\`[name="\${field}"]\`, value);
+});
+
+When('I click the {string} button', async ({ page }, label) => {
+  await page.click(\`button:has-text("\${label}")\`);
+});
+
+Then('I should be redirected to the dashboard', async ({ page }) => {
+  await expect(page).toHaveURL('/dashboard');
+});` },
+        { label: 'Scenario Outline (data-driven)', code: `# features/login.feature
+Scenario Outline: Login with multiple roles
+  Given I am on the login page
+  When I fill in "email" with "<email>"
+  And I fill in "password" with "<password>"
+  Then I should see the "<page>" page
+
+  Examples:
+    | email            | password | page      |
+    | admin@test.com   | admin123 | dashboard |
+    | user@test.com    | user123  | home      |` },
+        { label: 'Tags — run only tagged scenarios', code: `# features/checkout.feature
+@smoke @critical
+Scenario: Guest checkout
+  Given I have items in my cart
+  When I complete checkout as guest
+  Then I receive a confirmation email
+
+# Run only @smoke-tagged scenarios:
+# npx bddgen && npx playwright test --grep @smoke` },
+      ]
+    },
+    {
+      name: '@cucumber/playwright — official Cucumber integration', ret: 'BDD', short: 'Use the official @cucumber/playwright adapter for full Cucumber ecosystem support',
+      desc: '@cucumber/playwright is the official Cucumber adapter that lets you use CucumberJS with Playwright as the automation layer. It gives you the full Cucumber ecosystem (formatters, reporters, hooks) while driving the browser through Playwright. Slightly more setup than playwright-bdd but closer to the CucumberJS API if your team already uses it elsewhere (e.g. with WebdriverIO or Selenium).',
+      use: 'When migrating an existing CucumberJS suite to Playwright, or when you need CucumberJS-native reporters (Allure, JSON, HTML).',
+      examples: [
+        { label: 'Install and configure', code: `npm install -D @cucumber/cucumber @cucumber/playwright
+
+# cucumber.js (config file)
+module.exports = {
+  default: {
+    require: ['features/step-definitions/**/*.ts'],
+    requireModule: ['ts-node/register'],
+    format: ['progress', 'html:reports/cucumber.html'],
+  }
+};` },
+        { label: 'World setup — inject Playwright page', code: `// features/support/world.ts
+import { setWorldConstructor, World } from '@cucumber/cucumber';
+import { Browser, BrowserContext, Page, chromium } from '@playwright/test';
+
+export class PlaywrightWorld extends World {
+  browser!: Browser;
+  context!: BrowserContext;
+  page!: Page;
+}
+
+setWorldConstructor(PlaywrightWorld);` },
+        { label: 'Hooks — launch / close browser', code: `// features/support/hooks.ts
+import { Before, After } from '@cucumber/cucumber';
+import { PlaywrightWorld } from './world';
+import { chromium } from '@playwright/test';
+
+Before(async function (this: PlaywrightWorld) {
+  this.browser = await chromium.launch();
+  this.context = await this.browser.newContext();
+  this.page = await this.context.newPage();
+});
+
+After(async function (this: PlaywrightWorld) {
+  await this.browser.close();
+});` },
+        { label: 'Step definitions using Playwright page', code: `// features/step-definitions/login.ts
+import { Given, When, Then } from '@cucumber/cucumber';
+import { expect } from '@playwright/test';
+import { PlaywrightWorld } from '../support/world';
+
+Given('I am on the login page', async function (this: PlaywrightWorld) {
+  await this.page.goto('/login');
+});
+
+When('I log in as {string}', async function (this: PlaywrightWorld, role) {
+  await this.page.fill('#email', \`\${role}@example.com\`);
+  await this.page.fill('#password', 'password');
+  await this.page.click('button[type=submit]');
+});
+
+Then('I should see the {string} page', async function (this: PlaywrightWorld, title) {
+  await expect(this.page).toHaveTitle(new RegExp(title, 'i'));
+});` },
+        { label: 'Run Cucumber with Playwright', code: `# Run all features
+npx cucumber-js
+
+# Run with tags
+npx cucumber-js --tags "@smoke"
+
+# Run a specific feature
+npx cucumber-js features/login.feature` },
+      ]
+    },
+  ];
 
 SECTIONS.find(s => s.id === 'start').fns = [
     {
@@ -813,17 +1024,26 @@ npx playwright test --debug` },
       },
     ];
 
-let activeFilter = 'All';
+let activeFilter = 'start';
 let activeCommandKey = null;
 
 function buildFilterChips() {
   const wrap = document.getElementById('filterChips');
-  const all = [{ id: 'All', label: 'All' }, ...SECTIONS];
-  wrap.innerHTML = all.map(s => `
+  wrap.innerHTML = SECTIONS.map(s => `
     <button class="filter-chip${s.id === activeFilter ? ' active' : ''}" onclick="setFilter('${s.id}')">${s.label}</button>
   `).join('');
 }
-function setFilter(id) { activeFilter = id; buildFilterChips(); renderLog(document.getElementById('search').value); }
+function setFilter(id) {
+  activeFilter = id;
+  activeCommandKey = null;
+  // clear the search box when switching tabs
+  document.getElementById('search').value = '';
+  buildFilterChips();
+  renderLog('');
+  // auto-select first command in the new section
+  const section = SECTIONS.find(s => s.id === id);
+  if (section && section.fns.length > 0) selectCommand(section.id, 0);
+}
 
 function renderLog(query = '') {
   const q = query.toLowerCase().trim();
@@ -832,20 +1052,24 @@ function renderLog(query = '') {
   let total = 0;
 
   SECTIONS.forEach(section => {
-    if (activeFilter !== 'All' && section.id !== activeFilter) return;
-    const fns = section.fns.filter(fn => {
-      if (!q) return true;
-      return fn.name.toLowerCase().includes(q) || fn.short.toLowerCase().includes(q) ||
-             fn.desc.toLowerCase().includes(q) || fn.use.toLowerCase().includes(q);
-    });
-    if (!fns.length) return;
-    total += fns.length;
+    // when searching, show all sections; when browsing, respect the active tab
+    if (!q && section.id !== activeFilter) return;
+    // keep track of real indices in section.fns, not filtered indices
+    const matchedFns = section.fns
+      .map((fn, realIdx) => ({ fn, realIdx }))
+      .filter(({ fn }) => {
+        if (!q) return true;
+        return fn.name.toLowerCase().includes(q) || fn.short.toLowerCase().includes(q) ||
+               fn.desc.toLowerCase().includes(q) || fn.use.toLowerCase().includes(q);
+      });
+    if (!matchedFns.length) return;
+    total += matchedFns.length;
     html += `
-      <div class="log-section-head">${section.label}<span class="count-badge">${fns.length}</span></div>
-      ${fns.map((fn, i) => {
-        const key = section.id + '__' + i;
+      <div class="log-section-head">${section.label}<span class="count-badge">${matchedFns.length}</span></div>
+      ${matchedFns.map(({ fn, realIdx }, i) => {
+        const key = section.id + '__' + realIdx;
         return `
-        <div class="log-entry${key === activeCommandKey ? ' active' : ''}" data-key="${key}" onclick="selectCommand('${section.id}', ${i})">
+        <div class="log-entry${key === activeCommandKey ? ' active' : ''}" data-key="${key}" onclick="selectCommand('${section.id}', ${realIdx})">
           <span class="log-num">${String(i + 1).padStart(2,'0')}</span>
           <span class="log-icon">▶</span>
           <div class="log-text">
@@ -926,15 +1150,35 @@ function applyTheme(t) {
 applyTheme(localStorage.getItem('pw3-theme') || 'dark');
 themeBtn.addEventListener('click', () => applyTheme(htmlEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
 
-document.getElementById('search').addEventListener('input', e => renderLog(e.target.value));
+document.getElementById('search').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase().trim();
+  renderLog(e.target.value);
+  // if current selection is no longer visible, jump to first match
+  let currentVisible = false;
+  for (const section of SECTIONS) {
+    section.fns.forEach((fn, realIdx) => {
+      const matches = !q || fn.name.toLowerCase().includes(q) || fn.short.toLowerCase().includes(q) || fn.desc.toLowerCase().includes(q) || fn.use.toLowerCase().includes(q);
+      if (matches && (section.id + '__' + realIdx) === activeCommandKey) currentVisible = true;
+    });
+  }
+  if (!currentVisible) {
+    activeCommandKey = null;
+    // when searching, scan all sections; when clearing, respect active tab
+    for (const section of SECTIONS) {
+      if (!q && section.id !== activeFilter) continue;
+      const firstMatch = section.fns.findIndex(fn => !q || fn.name.toLowerCase().includes(q) || fn.short.toLowerCase().includes(q) || fn.desc.toLowerCase().includes(q) || fn.use.toLowerCase().includes(q));
+      if (firstMatch !== -1) { selectCommand(section.id, firstMatch); break; }
+    }
+  }
+});
 
 buildFilterChips();
 computeStats();
 renderLog();
 
 setTimeout(() => {
-  const firstSection = SECTIONS.find(s => s.fns.length > 0);
-  if (firstSection) selectCommand(firstSection.id, 0);
+  const startSection = SECTIONS.find(s => s.id === 'start' && s.fns.length > 0);
+  if (startSection) selectCommand(startSection.id, 0);
 }, 50);
 </script>
 </body>
